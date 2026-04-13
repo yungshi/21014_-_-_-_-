@@ -5,7 +5,9 @@
 
 2.https://visitjeju.net/kr?utm_source=google&utm_medium=cpc&utm_campaign=main&utm_content=1&utm_term=&gad_source=1&gad_campaignid=23671636471&gbraid=0AAAABDJUlF2e-kzCzohtgpl3mxFf5UhUF&gclid=Cj0KCQjwqPLOBhCiARIsAKRMPZpoBOdbgpPGldCY3Qj2oira5XRheEtMCTzcpG6IgoSm-QKfTFZ4m_caAp2nEALw_wcB
 
-https://www.jeju.go.kr/hallasan/index.htm
+3.https://www.jeju.go.kr/hallasan/index.htm
+
+4.https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiView.kci?sereArticleSearchBean.artiId=ART002273732
 
 #사용밥법
 1.지도에 있는 구역 중 최소 2개 이상을 선택
@@ -18,5 +20,5 @@ https://www.jeju.go.kr/hallasan/index.htm
 (W:보행속도(km/h) s: 경사도(tan x) e:자연상수)
 
 #혼동주의
-한라산은 서쪽이 조명암 동쪽은 현무암이다.하라산의 백록담층은 현무암이다.
+[4]한라산은 서쪽이 조명암 동쪽은 현무암이다.하라산의 백록담층은 현무암이다.
 
