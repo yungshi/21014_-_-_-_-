@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Jeju Bio-Geo Simulator (Precision v3)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+        body { margin: 0; background-color: #020617; overflow: hidden; font-family: 'Pretendard', sans-serif; touch-action: none; -webkit-user-select: none; }
+        canvas { display: block; }
+        .label-container { position: absolute; pointer-events: none; z-index: 10; transform: translate(-50%, -100%); }
+        #bottomPanel { transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1); z-index: 40; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .touch-active:active { transform: scale(0.96); opacity: 0.9; }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container" class="fixed inset-0 z-0"></div>
+    <div id="labels-overlay" class="fixed inset-0 z-10 pointer-events-none"></div>
+
+    <div class="fixed top-6 left-4 right-4 z-20 pointer-events-none flex flex-col gap-3">
+        <div class="bg-slate-900/90 backdrop-blur-xl p-4 rounded-2xl border border-emerald-500/30 shadow-2xl pointer-events-auto self-start">
+            <h1 class="text-emerald-400 font-black text-lg tracking-tight uppercase italic">Jeju Bio-Geo Simulator</h1>
+            <p class="text-[9px] text-slate-400 font-bold uppercase mt-0.5 tracking-wide">실측 시간/거리 데이터 정밀 동기화 모드</p>
+        </div>
+        <div id="selectionList" class="flex gap-2 overflow-x-auto no-scrollbar pointer-events-auto pb-2"></div>
+    </div>
+
+    <div id="geoInfoCard" class="fixed inset-x-4 bottom-32 z-50 bg-slate-900/95 backdrop-blur-2xl border border-white/20 rounded-3xl p-6 shadow-2xl hidden transform translate-y-[120%] transition-all duration-300">
+        <div class="flex justify-between items-start mb-4">
+            <div>
+                <span class="text-[9px] font-bold bg-blue-500/20 text-blue-400 px-2 py-1 rounded uppercase tracking-widest mb-2 inline-block">Location Point</span>
+                <h2 id="geoTitle" class="text-2xl font-black text-white tracking-tighter">장소명</h2>
+            </div>
+            <button id="closeInfoBtn" class="bg-white/10 text-white p-3 rounded-full touch-active"><svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+        </div>
+        <p id="geoDesc" class="text-[11px] text-slate-400 leading-relaxed mb-4"></p>
+        <button id="addToPathBtn" class="w-full bg-emerald-500 text-slate-950 font-black py-4 rounded-2xl touch-active text-xs uppercase">경로에 추가</button>
+    </div>
+
+    <div id="bottomPanel" class="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-2xl border-t border-white/10 rounded-t-[2.5rem] shadow-2xl">
+        <div id="dragHandleArea" class="py-5"><div class="w-12 h-1 bg-slate-700 rounded-full mx-auto"></div></div>
+        <div class="max-w-md mx-auto px-6 pb-8">
+            <div class="flex flex-col gap-5">
+                <button id="calcBtn" class="w-full bg-emerald-500 text-slate-950 font-black py-5 rounded-2xl shadow-xl disabled:opacity-20 touch-active" disabled>시뮬레이션 시작</button>
+                <div id="resultArea" class="hidden grid grid-cols-3 gap-2 border-t border-white/5 pt-4">
+                    <div class="text-center"><p class="text-[8px] text-slate-500 font-bold uppercase mb-1">소요 시간</p><p id="resTime" class="text-sm font-black text-emerald-400">0h</p></div>
+                    <div class="text-center"><p class="text-[8px] text-slate-500 font-bold uppercase mb-1">에너지 소모</p><p id="resEnergy" class="text-sm font-black text-blue-400">0ml</p></div>
+                    <div class="text-center"><p class="text-[8px] text-slate-500 font-bold uppercase mb-1">총 거리</p><p id="resDist" class="text-sm font-black text-amber-400">0km</p></div>
+                </div>
+                <button id="resetBtn" class="text-[10px] text-slate-500 font-bold uppercase tracking-widest hover:text-white transition-colors">전체 초기화</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 실측 데이터 기반 정밀 좌표계 ---
+        const LANDMARKS = [
+            { id: 'airport', name: "제주공항", x: -120, z: -280, color: "#10b981", desc: "출발 기점." },
+            { id: 'kwanumsa', name: "관음사", x: -40, z: -100, color: "#f87171", desc: "실측: 13km / 4시간" },
+            { id: 'seongpanak', name: "성판악", x: 120, z: -40, color: "#60a5fa", desc: "실측: 22km / 6시간" },
+            { id: 'peak', name: "한라산", x: 10, z: 50, color: "#ffffff", desc: "실측: 23km / 9시간 (급경사)" },
+            { id: 'darangsi', name: "다랑쉬오름", x: 380, z: -110, color: "#a855f7", desc: "실측: 37km / 10시간" },
+            { id: 'sanbang', name: "산방산", x: -430, z: 120, color: "#ec4899", desc: "실측: 38km / 10시간" },
+            { id: 'jusang', name: "주상절리", x: -350, z: 240, color: "#4ade80", desc: "실측: 38km / 11시간" },
+            { id: 'sungsan', name: "성산일출봉", x: 500, z: 30, color: "#fbbf24", desc: "실측: 44km / 12시간" }
+        ];
+
+        let selectedWaypoints = [];
+        let currentTargetId = null;
+
+        const WORLD_W = 1400, WORLD_H = 800, GRID_RES = 60;
+        const DIST_COEFF = 65.2; // 실측 거리 동기화를 위한 계수
+        
+        let scene, camera, renderer, controls, terrain;
+        let pathGroup = new THREE.Group();
+        const labelElements = [];
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let touchStartPos = { x: 0, y: 0 };
+
+        function getElevation(x, z) {
+            const nx = x / (WORLD_W / 2), nz = z / (WORLD_H / 2);
+            const r = Math.sqrt(nx * nx + nz * nz);
+            if (r > 1.0) return -50; 
+            const angle = Math.atan2(z, x); 
+            const steepness = (Math.sin(angle) > 0) ? 1.6 : 2.0;
+            const baseElev = 350 * Math.exp(-Math.pow(r * steepness, 1.8));
+            const peakImpact = r < 0.18 ? (0.18 - r) * 900 : 0; 
+            return Math.max(-2, baseElev + peakImpact);
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x020617);
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 10000);
+            camera.position.set(0, 1000, 1000);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.08;
+            controls.maxPolarAngle = Math.PI / 2.2;
+
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+            const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+            sun.position.set(500, 1000, 500);
+            scene.add(sun);
+            scene.add(pathGroup);
+
+            const geo = new THREE.PlaneGeometry(WORLD_W, WORLD_H, GRID_RES-1, GRID_RES-1);
+            const pos = geo.attributes.position;
+            for (let i = 0; i < pos.count; i++) {
+                pos.setZ(i, getElevation(pos.getX(i), -pos.getY(i)));
+            }
+            geo.computeVertexNormals();
+            const mat = new THREE.MeshStandardMaterial({ color: 0x334155, wireframe: true, transparent: true, opacity: 0.12 });
+            terrain = new THREE.Mesh(geo, mat);
+            terrain.rotation.x = -Math.PI / 2;
+            scene.add(terrain);
+
+            const overlay = document.getElementById('labels-overlay');
+            LANDMARKS.forEach(loc => {
+                const grp = new THREE.Group();
+                const ey = getElevation(loc.x, loc.z);
+                grp.position.set(loc.x, ey, loc.z);
+
+                const hit = new THREE.Mesh(new THREE.SphereGeometry(40, 12, 12), new THREE.MeshBasicMaterial({ visible: false }));
+                hit.userData = { id: loc.id };
+                grp.add(hit);
+
+                const pin = new THREE.Mesh(new THREE.ConeGeometry(12, 35, 4), new THREE.MeshStandardMaterial({ color: loc.color, emissive: loc.color, emissiveIntensity: 0.3 }));
+                pin.position.y = 18; pin.rotation.x = Math.PI;
+                grp.add(pin);
+                scene.add(grp);
+
+                const div = document.createElement('div');
+                div.className = 'label-container';
+                div.innerHTML = `<div class="bg-slate-900/90 text-white px-2 py-1 rounded-full border border-white/20 text-[9px] font-bold shadow-2xl">${loc.name}</div>`;
+                overlay.appendChild(div);
+                labelElements.push({ element: div, position: grp.position, id: loc.id });
+            });
+
+            // 모바일 이벤트 리스너
+            renderer.domElement.addEventListener('touchstart', (e) => { touchStartPos = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }, { passive: true });
+            renderer.domElement.addEventListener('touchend', (e) => {
+                const dx = e.changedTouches[0].clientX - touchStartPos.x;
+                const dy = e.changedTouches[0].clientY - touchStartPos.y;
+                if (Math.sqrt(dx*dx + dy*dy) < 10) handleInteraction(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+            }, { passive: true });
+
+            animate();
+        }
+
+        function handleInteraction(cx, cy) {
+            mouse.x = (cx / window.innerWidth) * 2 - 1; mouse.y = -(cy / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const targets = raycaster.intersectObjects(scene.children, true);
+            const found = targets.find(i => i.object.userData && i.object.userData.id);
+            if (found) showCard(found.object.userData.id); else hideCard();
+        }
+
+        function showCard(id) {
+            const data = LANDMARKS.find(l => l.id === id); currentTargetId = id;
+            document.getElementById('geoTitle').innerText = data.name;
+            document.getElementById('geoDesc').innerText = data.desc;
+            const card = document.getElementById('geoInfoCard');
+            card.classList.remove('hidden'); setTimeout(() => card.style.transform = 'translateY(0)', 10);
+            updateBtnState(id);
+        }
+
+        function hideCard() {
+            const card = document.getElementById('geoInfoCard');
+            card.style.transform = 'translateY(120%)'; setTimeout(() => card.classList.add('hidden'), 300);
+        }
+
+        function updateBtnState(id) {
+            const btn = document.getElementById('addToPathBtn');
+            const isIncluded = selectedWaypoints.includes(id);
+            btn.innerText = isIncluded ? "경로에서 제거" : "경로에 추가";
+            btn.className = isIncluded ? "w-full bg-red-500/20 text-red-400 border border-red-500/30 py-4 rounded-2xl text-xs font-black touch-active" : "w-full bg-emerald-500 text-slate-950 py-4 rounded-2xl text-xs font-black touch-active";
+        }
+
+        function toggleWaypoint(id) {
+            const idx = selectedWaypoints.indexOf(id);
+            if (idx > -1) selectedWaypoints.splice(idx, 1); else selectedWaypoints.push(id);
+            renderUI();
+            if (currentTargetId === id) updateBtnState(id);
+        }
+
+        function renderUI() {
+            const list = document.getElementById('selectionList'); list.innerHTML = '';
+            selectedWaypoints.forEach((id, i) => {
+                const data = LANDMARKS.find(l => l.id === id);
+                const chip = document.createElement('div');
+                chip.className = "bg-emerald-500 text-slate-950 px-4 py-2 rounded-2xl text-[10px] font-black flex items-center gap-2 flex-shrink-0 shadow-lg touch-active";
+                chip.innerHTML = `<span>${i+1}. ${data.name}</span><span class="opacity-50" onclick="event.stopPropagation(); toggleWaypoint('${id}')">✕</span>`;
+                chip.onclick = () => showCard(id);
+                list.appendChild(chip);
+            });
+            document.getElementById('calcBtn').disabled = selectedWaypoints.length < 2;
+        }
+
+        async function solvePath(start, end) {
+            const nodes = []; const step = WORLD_W / GRID_RES;
+            for (let z = -WORLD_H/2; z <= WORLD_H/2; z += step) {
+                for (let x = -WORLD_W/2; x <= WORLD_W/2; x += step) {
+                    nodes.push({ x, y: z, g: Infinity, h: 0, prev: null, v: false });
+                }
+            }
+            const nearest = (p) => nodes.reduce((a, b) => ((a.x-p.x)**2+(a.y-p.y)**2) < ((b.x-p.x)**2+(b.y-p.y)**2) ? a : b);
+            const sn = nearest(start), en = nearest(end); sn.g = 0; const openSet = [sn];
+
+            while (openSet.length > 0) {
+                openSet.sort((a,b) => (a.g+a.h)-(b.g+b.h));
+                const curr = openSet.shift();
+                if(curr === en) break; curr.v = true;
+
+                const neighbors = nodes.filter(n => !n.v && Math.abs(n.x-curr.x) <= step + 1 && Math.abs(n.y-curr.y) <= step + 1);
+                for (const next of neighbors) {
+                    const d2d = Math.sqrt((next.x-curr.x)**2 + (next.y-curr.y)**2) * DIST_COEFF;
+                    const dh = (getElevation(next.x, next.y) - getElevation(curr.x, curr.y)) * 1.5;
+                    const slope = dh / d2d;
+
+                    // 보행 속도 공식 최적화: 4.2km/h 베이스
+                    const W = 4.2 * Math.exp(-3.5 * Math.abs(slope + 0.05));
+                    const S = (W * 1000) / 60; // m/min
+                    const timeMin = d2d / S;
+
+                    const newG = curr.g + timeMin;
+                    if (newG < next.g) {
+                        next.g = newG;
+                        next.h = Math.sqrt((next.x-en.x)**2 + (next.y-en.y)**2);
+                        next.prev = curr;
+                        if (!openSet.includes(next)) openSet.push(next);
+                    }
+                }
+            }
+            const res = []; let t = en; while(t) { res.push(t); t = t.prev; }
+            return res.reverse();
+        }
+
+        document.getElementById('calcBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('calcBtn');
+            btn.innerText = "경로 데이터 계산 중..."; btn.disabled = true;
+            while(pathGroup.children.length > 0) pathGroup.remove(pathGroup.children[0]);
+
+            let totalTime = 0, totalVO2 = 0, totalDist = 0;
+            const points = [];
+
+            for (let i = 0; i < selectedWaypoints.length - 1; i++) {
+                const s = LANDMARKS.find(l => l.id === selectedWaypoints[i]);
+                const e = LANDMARKS.find(l => l.id === selectedWaypoints[i+1]);
+                const segment = await solvePath({x: s.x, y: s.z}, {x: e.x, y: e.z});
+
+                segment.forEach((node, j) => {
+                    points.push(new THREE.Vector3(node.x, getElevation(node.x, node.y) + 5, node.y));
+                    if (j < segment.length - 1) {
+                        const d = Math.sqrt((segment[j+1].x-node.x)**2 + (segment[j+1].y-node.y)**2) * DIST_COEFF;
+                        const sl = (getElevation(segment[j+1].x, segment[j+1].y) - getElevation(node.x, node.y)) * 1.5 / d;
+                        const v = (4.2 * Math.exp(-3.5 * Math.abs(sl + 0.05)) * 1000) / 60;
+                        const t = d / v;
+                        totalTime += t;
+                        totalVO2 += ((0.1 * v) + (1.8 * v * Math.max(0, sl)) + 3.5) * t;
+                        totalDist += d;
+                    }
+                });
+            }
+
+            pathGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), new THREE.LineBasicMaterial({ color: 0x10b981 })));
+            document.getElementById('resultArea').classList.remove('hidden');
+            const hr = Math.floor(totalTime / 60); const mn = Math.round(totalTime % 60);
+            document.getElementById('resTime').innerText = hr > 0 ? `${hr}시간 ${mn}분` : `${mn}분`;
+            document.getElementById('resEnergy').innerText = Math.round(totalVO2).toLocaleString() + "ml";
+            document.getElementById('resDist').innerText = (totalDist/1000).toFixed(1) + "km";
+            btn.innerText = "분석 완료";
+            setTimeout(() => { btn.innerText = "시뮬레이션 시작"; btn.disabled = false; }, 2000);
+        });
+
+        function animate() {
+            requestAnimationFrame(animate); 
+            controls.update();
+            labelElements.forEach(item => {
+                const v = item.position.clone().project(camera);
+                if (v.z > 1) item.element.style.display = 'none';
+                else {
+                    item.element.style.display = 'block';
+                    item.element.style.left = `${(v.x * 0.5 + 0.5) * window.innerWidth}px`;
+                    item.element.style.top = `${(v.y * -0.5 + 0.5) * window.innerHeight - 30}px`;
+                }
+            });
+            renderer.render(scene, camera);
+        }
+
+        document.getElementById('addToPathBtn').addEventListener('click', () => { if(currentTargetId) toggleWaypoint(currentTargetId); });
+        document.getElementById('closeInfoBtn').addEventListener('click', hideCard);
+        document.getElementById('resetBtn').addEventListener('click', () => { selectedWaypoints = []; renderUI(); while(pathGroup.children.length > 0) pathGroup.remove(pathGroup.children[0]); document.getElementById('resultArea').classList.add('hidden'); });
+        window.onload = init;
+        window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+    </script>
+</body>
+</html>
